@@ -30,7 +30,7 @@ our $VERSION = '0.01';
 
 =head1 SYNOPSIS
 
-Get BGP neighbour details from a network devices running BGP routing protocol. 
+Get BGP neighbour details from a network devices running BGP routing protocol.
 
 Supported operating systesm are JunOS, IOS, IOS-XE, IOS-XR.
 
@@ -72,22 +72,22 @@ Supported operating systesm are JunOS, IOS, IOS-XE, IOS-XR.
 =head2 new
 
     $bgpDevice = SNMP::BGP->new(
-                                        Hostname        => $hostname,
-                                        Os              => $os
-                                        [Version        => $version,] # 2 or 3, default 2
-                                        [Community      => $community,] # Default 'public'
-                                        [Username       => $snmpusername,] # Default 'username', sets noAuthNoPriv when used alone.
-                                        [Authpassword   => $authpassword,] # sets authNoPriv
-                                        [Authprotocol   => $authprotocol,] # md5|sha, default 'sha'
-                                        [Privpassword   => $privpassword,] # authpassword must be used, sets 'authPriv'
-                                        [Privprotocol   => $privprotocol,] # des|aes, default 'aes'
-                                        [Timeout    => $snmptimeout,] # default 5
-                                        [Debug          => $debug] # default 0
-                                        );
+        Hostname        => $hostname,
+        Os              => $os
+        [Version        => $version,]       # 2 or 3, default 2
+        [Community      => $community,]     # Default 'public'
+        [Username       => $snmpusername,]  # Default 'username', sets noAuthNoPriv when used alone.
+        [Authpassword   => $authpassword,]  # sets authNoPriv
+        [Authprotocol   => $authprotocol,]  # md5|sha, default 'sha'
+        [Privpassword   => $privpassword,]  # authpassword must be used, sets 'authPriv'
+        [Privprotocol   => $privprotocol,]  # des|aes, default 'aes'
+        [Timeout        => $snmptimeout,]   # default 5
+        [Debug          => $debug]          # default 0
+        );
 
 
 Creates a new SNMP::BGP object. SNMP Authentication either with communities or user based follow
-the same rules as NET::SNMP. 
+the same rules as NET::SNMP.
 
 =cut
 
@@ -220,6 +220,71 @@ sub getJunOSNei {
 
     my $self = shift;
 
+    my $jnxBgpM2PeerState          = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.2';
+    my $jnxBgpM2PeerRemoteAddrType = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.10';
+    my $jnxBgpM2PeerRemoteAddr     = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.11';
+    my $jnxBgpM2PeerRemoteAs       = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.13';
+    my $jnxBgpM2PeerIndex          = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.14';
+
+    my $jnxBgpM2PrefixInPrefixesAccepted = '1.3.6.1.4.1.2636.5.1.1.2.6.2.1.8';
+
+    # Get the prefix table.
+    #
+    my $jnxBgpM2PrefixCountersEntry_tbl =
+      $self->{'snmpSession'}->get_entries(maxrepetitions => 3, columns => [$jnxBgpM2PrefixInPrefixesAccepted]);
+
+    if (!defined($jnxBgpM2PrefixCountersEntry_tbl)) {
+        $self->{'has_err'}  = 1;
+        $self->{'errormsg'} = 'Error getting neighbours prefix count from ' . $self->{'options'}->{'snmp'}->{'hostname'} . ': ' . $self->{'snmpSession'}->error;
+        return 0;
+    }
+
+    my $jnxBgpM2PrefixCountersTable = {};
+
+    foreach (keys %$jnxBgpM2PrefixCountersEntry_tbl) {
+        if (my ($iid) = $_ =~ /$jnxBgpM2PrefixInPrefixesAccepted\.(\d+)\.\d+\.\d+$/) {
+            $jnxBgpM2PrefixCountersTable->{$iid} = $jnxBgpM2PrefixCountersEntry_tbl->{$_};
+        }
+    }
+
+    # Get Peer table.
+    #
+    my $jnxBgpM2PeerTable = $self->{'snmpSession'}->get_entries(
+        maxrepetitions => 3,
+        columns        => [ $jnxBgpM2PeerIndex, $jnxBgpM2PeerRemoteAddr, $jnxBgpM2PeerRemoteAs, $jnxBgpM2PeerRemoteAddrType, $jnxBgpM2PeerState ]
+    );
+
+    if (!defined($jnxBgpM2PeerTable)) {
+        $self->{'has_err'}  = 1;
+        $self->{'errormsg'} = 'Error getting neighbours from ' . $self->{'options'}->{'snmp'}->{'hostname'} . ': ' . $self->{'snmpSession'}->error;
+        return 0;
+    }
+
+    foreach (keys %$jnxBgpM2PeerTable) {
+
+        if (my ($base, $index) = $_ =~ /($jnxBgpM2PeerRemoteAddrType)(.+)$/) {
+
+            my $iid = $jnxBgpM2PeerTable->{ $jnxBgpM2PeerIndex . $index };
+            my $ip;
+
+            if ($jnxBgpM2PeerTable->{$_} == 1) {
+                $ip = join('.', unpack("C*", pack("H*", substr($jnxBgpM2PeerTable->{ $jnxBgpM2PeerRemoteAddr . $index }, 2))));
+            } elsif ($jnxBgpM2PeerTable->{$_} == 2) {
+                $ip = Net::IPv6Addr::to_string_compressed(join(':', unpack("(A4)*", substr($jnxBgpM2PeerTable->{ $jnxBgpM2PeerRemoteAddr . $index }, 2))));
+            } else {
+                printf(STDERR "WARNING: Unknown IP address type found: %s on %s.\n", $jnxBgpM2PeerTable->{$_}, $hostname) if $self->{'options'}->{'debug'};
+                next;
+            }
+
+            next unless $ip;
+
+            $self->{'results'}->{$ip}->{'state'}        = $jnxBgpM2PeerTable->{ $jnxBgpM2PeerState . $index };
+            $self->{'results'}->{$ip}->{'status'}       = $self->{'state_table'}->{ $jnxBgpM2PeerTable->{ $jnxBgpM2PeerState . $index } };
+            $self->{'results'}->{$ip}->{'as'}           = $jnxBgpM2PeerTable->{ $jnxBgpM2PeerRemoteAs . $index };
+            $self->{'results'}->{$ip}->{'pfx_accepted'} = $jnxBgpM2PrefixCountersTable->{$iid} || 0;
+        }
+    }
+
     return 1;
 }
 
@@ -239,7 +304,7 @@ sub getIOSNei {
 
 =head2 extractCiscoIP
 
-Extracts the IP address from the OID using a regular expression. See getIOSXRNei() subroutine for example 
+Extracts the IP address from the OID using a regular expression. See getIOSXRNei() subroutine for example
 regular expressions.
 
 This method shouldn't usually called directly but used in the getIOSXRNei() and getIOSNei() methods internally.
@@ -248,7 +313,7 @@ This method shouldn't usually called directly but used in the getIOSXRNei() and 
     my $oid    = '1.3.6.1.4.1.9.9.187.1.2.5.1.29.1.4.192.168.1.1'
 
     my $ip = $bgp->extractCiscoIP($oid, $oid_re)
-    
+
     print $ip; # 192.168.1.1
 
 =cut
@@ -457,9 +522,7 @@ Rob Woodward, C<< <robwdwd at icloud.com> >>
 
 =head1 BUGS
 
-Please report any bugs or feature requests to C<bug-snmp-bgp at rt.cpan.org>, or through
-the web interface at L<http://rt.cpan.org/NoAuth/ReportBug.html?Queue=SNMP-BGP>.  I will be notified, and then you'll
-automatically be notified of progress on your bug as I make changes.
+Please report bugs, issues, feature requests and improvements on gitHub. L<https://github.com/robwwd/SNMP-BGP/>
 
 =head1 SUPPORT
 
@@ -472,21 +535,13 @@ You can also look for information at:
 
 =over 4
 
-=item * RT: CPAN's request tracker (report bugs here)
+=item * GitHub issue tracker
 
-L<http://rt.cpan.org/NoAuth/Bugs.html?Dist=SNMP-BGP>
+L<https://github.com/robwwd/SNMP-BGP/issues>
 
-=item * AnnoCPAN: Annotated CPAN documentation
+=item * Source Code
 
-L<http://annocpan.org/dist/SNMP-BGP>
-
-=item * CPAN Ratings
-
-L<http://cpanratings.perl.org/d/SNMP-BGP>
-
-=item * Search CPAN
-
-L<http://search.cpan.org/dist/SNMP-BGP/>
+L<https://github.com/robwwd/SNMP-BGP/>
 
 =back
 
