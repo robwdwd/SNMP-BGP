@@ -11,7 +11,11 @@ use Params::Validate qw( validate SCALAR UNDEF );
 
 use List::MoreUtils qw (firstval natatime);
 
-#use Data::Validate::IP qw(is_ipv4 is_ipv6 is_private_ipv4);
+use Net::IP qw( ip_get_version );
+
+# Using Net::IPv6Addr here for compressing ipv6 address as
+# the sub in Net::IP doesn't work...
+#
 use Net::IPv6Addr;
 
 use Data::Dump qw(dump);
@@ -108,8 +112,7 @@ sub new {
             4 => 'opensent',
             5 => 'openconfirm',
             6 => 'established'
-          }
-
+        }
     };
 
     bless($self, $class);
@@ -125,9 +128,46 @@ sub new {
     return ($self);
 }
 
+=head2 hasError
+
+Returns if the object has an error.
+
+=cut
+
+sub hasError {
+    my $self = shift;
+
+    return $self->{'has_err'};
+}
+
+=head2 errorMsg
+
+Returns the last error message. Use hasError() to check if a device
+has an error, relying on this to return an empty string to check for
+errors might produce unexpected results (sometimes non fatal error
+messages can be stored here.)
+
+=cut
+
+sub errorMsg {
+    my $self = shift;
+    return $self->{'errormsg'};
+}
+
 =head2 getNeighbours
 
 Get BGP neighbours on the device depending on the software, JunOS, IOS-XR etc.
+
+Returns a hashref indexed on IP address of the BGP neighbour.
+
+  "4.4.4.1" => {
+                    as => 1234,
+                    ip_version => 4,
+                    pfx_accepted => 1000,
+                    state => 6,
+                    status => "established",
+               },
+  ...
 
 =cut
 
@@ -184,9 +224,10 @@ sub getIOSXRNei {
         if (my ($base, $index) = $_ =~ /($cbgpPeer2RemoteAs)(.+)$/) {
             if (my $ip = $self->extractCiscoIP($_, $cbgpPeer2Entry_re)) {
                 $self->{'results'}->{$ip} = {} unless exists $self->{'results'}->{$ip};
-                $self->{'results'}->{$ip}->{'as'}     = $cbgpPeer2Table->{$_};
-                $self->{'results'}->{$ip}->{'state'}  = $cbgpPeer2Table->{ $cbgpPeer2State . $index };
-                $self->{'results'}->{$ip}->{'status'} = $self->{'state_table'}->{ $cbgpPeer2Table->{ $cbgpPeer2State . $index } };
+                $self->{'results'}->{$ip}->{'ip_version'} = ip_get_version($ip);
+                $self->{'results'}->{$ip}->{'as'}         = $cbgpPeer2Table->{$_};
+                $self->{'results'}->{$ip}->{'state'}      = $cbgpPeer2Table->{ $cbgpPeer2State . $index };
+                $self->{'results'}->{$ip}->{'status'}     = $self->{'state_table'}->{ $cbgpPeer2Table->{ $cbgpPeer2State . $index } };
             }
         }
     }
@@ -272,13 +313,15 @@ sub getJunOSNei {
             } elsif ($jnxBgpM2PeerTable->{$_} == 2) {
                 $ip = Net::IPv6Addr::to_string_compressed(join(':', unpack("(A4)*", substr($jnxBgpM2PeerTable->{ $jnxBgpM2PeerRemoteAddr . $index }, 2))));
             } else {
-                printf(STDERR "WARNING: Unknown IP address type found: %s on %s.\n", $jnxBgpM2PeerTable->{$_}, $hostname) if $self->{'options'}->{'debug'};
+                printf(STDERR "WARNING: Unknown IP address type found: %s on %s.\n", $jnxBgpM2PeerTable->{$_}, $self->{'options'}->{'hostname'})
+                  if $self->{'options'}->{'debug'};
                 next;
             }
 
             next unless $ip;
 
             $self->{'results'}->{$ip}->{'state'}        = $jnxBgpM2PeerTable->{ $jnxBgpM2PeerState . $index };
+            $self->{'results'}->{$ip}->{'ip_version'}   = ip_get_version($ip);
             $self->{'results'}->{$ip}->{'status'}       = $self->{'state_table'}->{ $jnxBgpM2PeerTable->{ $jnxBgpM2PeerState . $index } };
             $self->{'results'}->{$ip}->{'as'}           = $jnxBgpM2PeerTable->{ $jnxBgpM2PeerRemoteAs . $index };
             $self->{'results'}->{$ip}->{'pfx_accepted'} = $jnxBgpM2PrefixCountersTable->{$iid} || 0;
@@ -347,32 +390,6 @@ sub extractCiscoIP {
         return $ip;
     }
     return 0;
-}
-
-=head2 hasError
-
-Returns if the object has an error.
-
-=cut
-
-sub hasError {
-    my $self = shift;
-
-    return $self->{'has_err'};
-}
-
-=head2 errorMsg
-
-Returns the last error message. Use has_error to check if a device
-has an error, relying on this to return an empty string to check for
-errors might produce unexpected results (sometimes non fatal error
-messages can be stored here.)
-
-=cut
-
-sub errorMsg {
-    my $self = shift;
-    return $self->{'errormsg'};
 }
 
 =head1 INTERNAL METHODS
@@ -481,8 +498,6 @@ sub _init {
         croak "ERROR: SNMP version not supported.";
         return undef;
     }
-
-    dump($options);
     return $options;
 }
 

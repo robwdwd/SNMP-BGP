@@ -65,9 +65,31 @@ Supported operating systesm are JunOS, IOS, IOS-XE, IOS-XR.
 Creates a new SNMP::BGP object. SNMP Authentication either with communities or user based follow
 the same rules as NET::SNMP.
 
+## hasError
+
+Returns if the object has an error.
+
+## errorMsg
+
+Returns the last error message. Use hasError() to check if a device
+has an error, relying on this to return an empty string to check for
+errors might produce unexpected results (sometimes non fatal error
+messages can be stored here.)
+
 ## getNeighbours
 
 Get BGP neighbours on the device depending on the software, JunOS, IOS-XR etc.
+
+Returns a hashref indexed on IP address of the BGP neighbour.
+
+    "4.4.4.1" => {
+                      as => 1234,
+                      ip_version => 4,
+                      pfx_accepted => 1000,
+                      state => 6,
+                      status => "established",
+                 },
+    ...
 
 ## getIOSXRNei
 
@@ -97,17 +119,6 @@ This method shouldn't usually called directly but used in the getIOSXRNei() and 
     my $ip = $bgp->extractCiscoIP($oid, $oid_re)
 
     print $ip; # 192.168.1.1
-
-## hasError
-
-Returns if the object has an error.
-
-## errorMsg
-
-Returns the last error message. Use has\_error to check if a device
-has an error, relying on this to return an empty string to check for
-errors might produce unexpected results (sometimes non fatal error
-messages can be stored here.)
 
 # INTERNAL METHODS
 
