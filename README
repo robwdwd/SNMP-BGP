@@ -1,0 +1,53 @@
+SNMP-BGP
+
+The README is used to introduce the module and provide instructions on
+how to install the module, any machine dependencies it may have (for
+example C compilers and installed libraries) and any other information
+that should be provided before the module is installed.
+
+A README file is required for CPAN modules since CPAN extracts the README
+file from a module distribution so that people browsing the archive
+can use it to get an idea of the module's uses. It is usually a good idea
+to provide version information here so that people can decide whether
+fixes for the module are worth downloading.
+
+
+INSTALLATION
+
+To install this module, run the following commands:
+
+	perl Build.PL
+	./Build
+	./Build test
+	./Build install
+
+SUPPORT AND DOCUMENTATION
+
+After installing, you can find documentation for this module with the
+perldoc command.
+
+    perldoc SNMP::BGP
+
+You can also look for information at:
+
+    RT, CPAN's request tracker (report bugs here)
+        http://rt.cpan.org/NoAuth/Bugs.html?Dist=SNMP-BGP
+
+    AnnoCPAN, Annotated CPAN documentation
+        http://annocpan.org/dist/SNMP-BGP
+
+    CPAN Ratings
+        http://cpanratings.perl.org/d/SNMP-BGP
+
+    Search CPAN
+        http://search.cpan.org/dist/SNMP-BGP/
+
+
+LICENSE AND COPYRIGHT
+
+Copyright (C) 2018 Rob Woodward
+
+This Source Code Form is subject to the terms of the Mozilla Public
+License, v. 2.0. If a copy of the MPL was not distributed with this
+file, You can obtain one at L<http://mozilla.org/MPL/2.0/>.
+
