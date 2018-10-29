@@ -60,7 +60,6 @@ Supported operating systesm are JunOS, IOS, IOS-XE, IOS-XR.
     if ($bgp->hasError()) {
         print $bgp->errorMsg() . "\n";
     } else {
-
         my $neighbours = $bgp->getNeighbours();
 
         if ($bgp->hasError()) {
@@ -130,7 +129,8 @@ sub new {
 
 =head2 hasError
 
-Returns if the object has an error.
+Returns 1 (true) if the object has an error. You can retrieve the error message with
+the errorMsg() method.
 
 =cut
 
@@ -151,6 +151,7 @@ messages can be stored here.)
 
 sub errorMsg {
     my $self = shift;
+
     return $self->{'errormsg'};
 }
 
@@ -158,7 +159,7 @@ sub errorMsg {
 
 Get BGP neighbours on the device depending on the software, JunOS, IOS-XR etc.
 
-Returns a hashref indexed on IP address of the BGP neighbour.
+Returns a hashref indexed on IP address of the BGP neighbours found on the device.
 
   "4.4.4.1" => {
                     as => 1234,
@@ -176,17 +177,11 @@ sub getNeighbours {
     my $self = shift;
 
     if ($self->{'options'}->{'os'} eq 'IOS-XR' || $self->{'options'}->{'os'} eq 'IOS-XE') {
-
         $self->getIOSXRNei();
-
     } elsif ($self->{'options'}->{'os'} eq 'JunOS') {
-
         $self->getJunOSNei();
-
     } elsif ($self->{'options'}->{'os'} eq 'IOS') {
-
         $self->getIOSNei();
-
     }
 
     return $self->{'results'};
@@ -341,6 +336,52 @@ rather than this one directly.
 sub getIOSNei {
 
     my $self = shift;
+
+    my ($session, $hostname, $neighbours) = @_;
+
+    my $cbgpPeer2RemoteAs         = '1.3.6.1.2.1.15.3.1.9';
+    my $cbgpPeer2State            = '1.3.6.1.2.1.15.3.1.2';
+    my $cbgpPeer2AcceptedPrefixes = '1.3.6.1.4.1.9.9.187.1.2.4.1.1';
+
+    my $cbgpPeer2Entry_re                 = '1\.3\.6\.1\.2\.1\.15\.3\.1\.\d+\.(.+)$';
+    my $cbgpPeer2AddrFamilyPrefixEntry_re = '1\.3\.6\.1\.4\.1\.9\.9\.187\.1\.2\.4\.1\.\d+\.(.+)\.\d+\.\d+$';
+
+    # Get peer state
+    #
+    my $cbgpPeer2Table = $self->{'snmpSession'}->get_entries(columns => [ $cbgpPeer2State, $cbgpPeer2RemoteAs ]);
+
+    if (!defined($cbgpPeer2Table)) {
+        $self->{'has_err'}  = 1;
+        $self->{'errormsg'} = 'Error getting neighbours from ' . $self->{'options'}->{'snmp'}->{'hostname'} . ': ' . $self->{'snmpSession'}->error;
+        return 0;
+    }
+
+    foreach (keys %$cbgpPeer2Table) {
+        if (my ($base, $index) = $_ =~ /($cbgpPeer2RemoteAs)(.+)$/) {
+            if (my $ip = $self->extractCiscoIP($_, $cbgpPeer2Entry_re)) {
+                $self->{'results'}->{$ip} = {} unless exists $self->{'results'}->{$ip};
+                $self->{'results'}->{$ip}->{'ip_version'} = ip_get_version($ip);
+                $self->{'results'}->{$ip}->{'as'}         = $cbgpPeer2Table->{$_};
+                $self->{'results'}->{$ip}->{'state'}      = $cbgpPeer2Table->{ $cbgpPeer2State . $index };
+                $self->{'results'}->{$ip}->{'status'}     = $state_table{ $cbgpPeer2Table->{ $cbgpPeer2State . $index } };
+            }
+        }
+    }
+
+    my $cbgpPeer2AddrFamilyPrefixTable = $self->{'snmpSession'}->get_entries(columns => [$cbgpPeer2AcceptedPrefixes]);
+
+    if (!defined($cbgpPeer2AddrFamilyPrefixTable)) {
+        $self->{'has_err'}  = 1;
+        $self->{'errormsg'} = 'Error getting neighbours prefixes from ' . $self->{'options'}->{'snmp'}->{'hostname'} . ': ' . $self->{'snmpSession'}->error;
+        return 0;
+    }
+
+    foreach (keys %$cbgpPeer2AddrFamilyPrefixTable) {
+        if (my $ip = $self->extractCiscoIP($_, $cbgpPeer2AddrFamilyPrefixEntry_re)) {
+            $self->{'results'}->{$ip} = {} unless exists $self->{'results'}->{$ip};
+            $self->{'results'}->{$ip}->{'pfx_accepted'} = $cbgpPeer2AddrFamilyPrefixTable->{$_} || 0;
+        }
+    }
 
     return 1;
 }
