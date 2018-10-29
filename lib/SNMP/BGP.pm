@@ -208,7 +208,7 @@ sub getNeighbours {
     if ($self->{'options'}->{'os'} eq 'IOS-XR' || $self->{'options'}->{'os'} eq 'IOS-XE') {
         $self->getIOSXRNei();
     } elsif ($self->{'options'}->{'os'} eq 'JunOS') {
-        $self->getJunOSNei();
+        $self->getJunOSNeiNew();
     } elsif ($self->{'options'}->{'os'} eq 'IOS') {
         $self->getIOSNei();
     }
@@ -280,6 +280,81 @@ Get BGP neighbours on a device running JunOS. You should call getNeighbours()
 rather than this one directly.
 
 =cut
+
+sub getJunOSNeiNew {
+
+    my $self = shift;
+
+    my $jnxBgpM2PeerState          = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.2';
+    my $jnxBgpM2PeerRemoteAddrType = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.10';
+    my $jnxBgpM2PeerRemoteAddr     = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.11';
+    my $jnxBgpM2PeerRemoteAs       = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.13';
+    my $jnxBgpM2PeerIndex          = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.14';
+
+    #iso.3.6.1.4.1.2636.5.1.1.2.1.1.1.13.0.1.0.0.0.0.1.62.96.41.35 = Gauge32: 41935
+    #iso.3.6.1.4.1.2636.5.1.1.2.1.1.1.13.0.1.0.0.0.0.1.62.96.41.195 = Gauge32: 41935
+    #iso.3.6.1.4.1.2636.5.1.1.2.1.1.1.13.0.1.212.74.90.252.1.62.96.41.179 = Gauge32: 41935
+    #iso.3.6.1.4.1.2636.5.1.1.2.1.1.1.13.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.32.1.9.32.112.3.0.0.0.0.0.0.0.0.0.3 = Gauge32: 41935
+    #iso.3.6.1.4.1.2636.5.1.1.2.1.1.1.13.0.2.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.2.32.1.9.32.112.8.0.0.0.0.0.0.0.0.0.3 = Gauge32: 41935
+    #iso.3.6.1.4.1.2636.5.1.1.2.1.1.1.13.0.2.32.1.9.32.0.0.0.1.0.0.0.0.0.0.2.244.2.32.1.9.32.112.7.0.0.0.0.0.0.0.0.0.3 = Gauge32: 41935
+
+    #1.3.6.1.4.1.2636.5.1.1.2.1.1.1.13.              0.1.0.0.0.0.1.62.96.41.35
+    my $jnxBgpM2PeerEntry_v4re = '1\.3\.6\.1\.4\.1\.2636\.5\.1\.1\.2\.1\.1\.1\.13\.0\.\1\.[\d\.]{4}1\.(.+)$';
+    my $jnxBgpM2PeerEntry_v6re = '1\.3\.6\.1\.4\.1\.2636\.5\.1\.1\.2\.1\.1\.1\.13\.0\.\2\.[\d\.]{14}2\.(.+)$';
+
+    my $jnxBgpM2PrefixInPrefixesAccepted = '1.3.6.1.4.1.2636.5.1.1.2.6.2.1.8';
+
+    # Get the prefix table.
+    #
+    my $jnxBgpM2PrefixCountersEntry_tbl =
+      $self->{'snmpSession'}->get_entries(maxrepetitions => 3, columns => [$jnxBgpM2PrefixInPrefixesAccepted]);
+
+    if (!defined($jnxBgpM2PrefixCountersEntry_tbl)) {
+        $self->{'has_err'}  = 1;
+        $self->{'errormsg'} = 'Error getting BGP neighbours prefix count: ' . $self->{'snmpSession'}->error;
+        return 0;
+    }
+
+    my $jnxBgpM2PrefixCountersTable = {};
+
+    foreach (keys %$jnxBgpM2PrefixCountersEntry_tbl) {
+        if (my ($iid) = $_ =~ /$jnxBgpM2PrefixInPrefixesAccepted\.(\d+)\.\d+\.\d+$/) {
+            $jnxBgpM2PrefixCountersTable->{$iid} = $jnxBgpM2PrefixCountersEntry_tbl->{$_};
+        }
+    }
+
+    # Get Peer table.
+    #
+    my $jnxBgpM2PeerTable = $self->{'snmpSession'}->get_entries(
+        maxrepetitions => 3,
+        columns        => [ $jnxBgpM2PeerIndex, $jnxBgpM2PeerRemoteAs, $jnxBgpM2PeerState ]
+    );
+
+    if (!defined($jnxBgpM2PeerTable)) {
+        $self->{'has_err'}  = 1;
+        $self->{'errormsg'} = 'Error getting neighbours: ' . $self->{'snmpSession'}->error;
+        return 0;
+    }
+
+    foreach (keys %$jnxBgpM2PeerTable) {
+
+        if (my ($base, $index) = $_ =~ /($jnxBgpM2PeerRemoteAs)(.+)$/) {
+
+            my $iid = $jnxBgpM2PeerTable->{ $jnxBgpM2PeerIndex . $index };
+
+            if (my $ip = $self->extractJunOSIP($_, $jnxBgpM2PeerEntry_v4re, $jnxBgpM2PeerEntry_v6re)) {
+                $self->{'results'}->{$ip} = {} unless exists $self->{'results'}->{$ip};
+                $self->{'results'}->{$ip}->{'ip_details'}   = $self->getIPDetails($ip);
+                $self->{'results'}->{$ip}->{'as'}           = $jnxBgpM2PeerTable->{ $jnxBgpM2PeerRemoteAs . $index };
+                $self->{'results'}->{$ip}->{'state'}        = $jnxBgpM2PeerTable->{ $jnxBgpM2PeerState . $index };
+                $self->{'results'}->{$ip}->{'status'}       = $self->{'state_table'}->{ $jnxBgpM2PeerTable->{ $jnxBgpM2PeerState . $index } };
+                $self->{'results'}->{$ip}->{'pfx_accepted'} = $jnxBgpM2PrefixCountersTable->{$iid} || 0;
+            }
+        }
+    }
+
+    return 1;
+}
 
 sub getJunOSNei {
 
@@ -461,6 +536,50 @@ sub extractCiscoIP {
         }
         return $ip;
     }
+    return 0;
+}
+
+=head2 extractJunOSIP
+
+Extracts the IP address from the OID using a regular expression.
+
+This method shouldn't usually called directly but used in the getIOSXRNei() and getIOSNei() methods internally.
+
+    my $oid_re = '1\.3\.6\.1\.4\.1\.9\.9\.187\.1\.2\.5\.1\.\d+\.[12]\.\d{1,2}\.(.+)$';
+    my $oid    = '1.3.6.1.4.1.9.9.187.1.2.5.1.29.1.4.192.168.1.1'
+
+    my $ip = $bgp->extractCiscoIP($oid, $oid_re)
+
+    print $ip; # 192.168.1.1
+
+=cut
+
+sub extractJunOSIP {
+
+    my $self = shift;
+
+    my ($oid, $v4re, $v6re) = @_;
+
+    if ($oid =~ /$v4re/) {
+        return $1;
+    }
+
+    if ($oid =~ /$v6re/) {
+        my $ip = $1;
+
+        # Convert IPv6 address to Hex
+        my @ipv6;
+        my $it = natatime(2, map ({ sprintf("%02x", $_) } split('\.', $ip)));
+
+        while (my @v = $it->()) {
+            push(@ipv6, join('', @v));
+        }
+
+        return Net::IPv6Addr::to_string_compressed(join ':', @ipv6);
+
+        return $ip;
+    }
+
     return 0;
 }
 
