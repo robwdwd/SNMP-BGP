@@ -127,6 +127,21 @@ sub new {
     return ($self);
 }
 
+=head2 close
+
+Close the BGP::SNMP session. This closes down the Net::SNMP sessions and clears the neighbours.
+
+=cut
+
+sub close {
+    my $self = shift;
+
+    $self->{'snmpSession'}->close() if ($self->{'snmpSession'});
+    $self->{'results'} = undef;
+    
+    return 1;
+}
+
 =head2 hasError
 
 Returns 1 (true) if the object has an error. You can retrieve the error message with
