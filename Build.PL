@@ -18,7 +18,7 @@ my $builder = Module::Build->new(
     requires => {
         'Net::SNMP'        => '0',
         'Params::Validate' => '0',
-        'Net::IP'          => '1.25',
+        'Data::Validate::IP' => '0',
         'Net::IPv6Addr'    => '0',
         'List::MoreUtils'  => '0',
     },
