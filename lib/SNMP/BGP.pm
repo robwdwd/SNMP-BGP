@@ -7,7 +7,7 @@ use warnings;
 use Carp;
 
 use Params::Validate qw( validate SCALAR UNDEF );
-use Data::Validate::IP qw(is_ip is_ipv4 is_ipv6 is_private_ipv4 is_private_ipv6);
+use Data::Validate::IP qw(is_ip is_ipv4 is_ipv6 is_private_ipv4 is_public_ipv6);
 use Net::IPv6Addr;
 use Net::SNMP;
 use List::MoreUtils qw (firstval natatime);
@@ -63,6 +63,18 @@ Supported operating systesm are JunOS, IOS, IOS-XE, IOS-XR.
         }
     }
 
+=head1 Supported devices
+
+The module supports IOS, IOS-XE, IOS-XR and JunOS. Most later versions of IOS-XE, IOS-XR and JunOS
+support all the MIBS needed however some old IOS version don't support getting prefix count for
+each neighbour or there is no support for v6 neighbours in IOS.
+
+IOS-XR and IOS-XE is using full CISCO-BGP4-MIB with cbgpPeer2AddrFamilyPrefixTable (Not the 2 there).
+
+IOS is using BGP4-MIB and cbgpPeerAddrFamilyPrefixEntry from CISCO-BGP4-MIB. If cbgpPeerAddrFamilyPrefixEntry
+is not supported on a device it sets prefix_count to be zero for all neighbours.
+
+JunOS is using BGP4-V2-MIB-JUNIPER.
 
 =head1 SUBROUTINES/METHODS
 
@@ -170,20 +182,20 @@ Get BGP neighbours on the device depending on the software, JunOS, IOS-XR etc.
 
 Returns a hashref indexed on IP address of the BGP neighbours found on the device.
 
- "172.20.60.220"  => {
-                        as => 1234,
-                        ip_details => { private => 1, version => 4 },
-                        pfx_accepted => 0,
-                        state => 1,
-                        status => "idle",
+    "172.20.60.220"  => {
+        as => 1234,
+        ip_details => { private => 1, version => 4 },
+        pfx_accepted => 0,
+        state => 1,
+        status => "idle",
 
                 },
-  "4.4.4.1" => {
-                    as => 1234,
-                    ip_details => { private => 0, version => 4 },
-                    pfx_accepted => 1000,
-                    state => 6,
-                    status => "established",
+    "4.4.4.1" => {
+        as => 1234,
+        ip_details => { private => 0, version => 4 },
+        pfx_accepted => 1000,
+        state => 6,
+        status => "established",
                },
   ...
 
@@ -355,54 +367,51 @@ sub getIOSNei {
 
     my $self = shift;
 
-    my ($session, $hostname, $neighbours) = @_;
+    my $bgpPeerRemoteAs          = '1.3.6.1.2.1.15.3.1.9';
+    my $bgpPeerState             = '1.3.6.1.2.1.15.3.1.2';
+    my $cbgpPeerAcceptedPrefixes = '1.3.6.1.4.1.9.9.187.1.2.4.1.1';
 
-    my $cbgpPeer2RemoteAs         = '1.3.6.1.2.1.15.3.1.9';
-    my $cbgpPeer2State            = '1.3.6.1.2.1.15.3.1.2';
-    my $cbgpPeer2AcceptedPrefixes = '1.3.6.1.4.1.9.9.187.1.2.4.1.1';
-
-    my $cbgpPeer2Entry_re                 = '1\.3\.6\.1\.2\.1\.15\.3\.1\.\d+\.(.+)$';
-    my $cbgpPeer2AddrFamilyPrefixEntry_re = '1\.3\.6\.1\.4\.1\.9\.9\.187\.1\.2\.4\.1\.\d+\.(.+)\.\d+\.\d+$';
+    my $bgpPeerEntry_re                  = '1\.3\.6\.1\.2\.1\.15\.3\.1\.\d+\.(.+)$';
+    my $cbgpPeerAddrFamilyPrefixEntry_re = '1\.3\.6\.1\.4\.1\.9\.9\.187\.1\.2\.4\.1\.\d+\.(.+)\.\d+\.\d+$';
 
     # Get peer state
     #
-    my $cbgpPeer2Table = $self->{'snmpSession'}->get_entries(columns => [ $cbgpPeer2State, $cbgpPeer2RemoteAs ]);
+    my $bgpPeerTable = $self->{'snmpSession'}->get_entries(columns => [ $bgpPeerState, $bgpPeerRemoteAs ]);
 
-    if (!defined($cbgpPeer2Table)) {
+    if (!defined($bgpPeerTable)) {
         $self->{'has_err'}  = 1;
         $self->{'errormsg'} = 'Error getting neighbours: ' . $self->{'snmpSession'}->error;
         return 0;
     }
 
-    foreach (keys %$cbgpPeer2Table) {
-        if (my ($base, $index) = $_ =~ /($cbgpPeer2RemoteAs)(.+)$/) {
-            if (my $ip = $self->extractCiscoIP($_, $cbgpPeer2Entry_re)) {
+    foreach (keys %$bgpPeerTable) {
+        if (my ($base, $index) = $_ =~ /($bgpPeerRemoteAs)(.+)$/) {
+            if (my $ip = $self->extractCiscoIP($_, $bgpPeerEntry_re)) {
                 $self->{'results'}->{$ip} = {} unless exists $self->{'results'}->{$ip};
-                $self->{'results'}->{$ip}->{'ip_details'} = $self->getIPDetails($ip);
-                $self->{'results'}->{$ip}->{'as'}         = $cbgpPeer2Table->{$_};
-                $self->{'results'}->{$ip}->{'state'}      = $cbgpPeer2Table->{ $cbgpPeer2State . $index };
-                $self->{'results'}->{$ip}->{'status'}     = $self->{'state_table'}->{ $cbgpPeer2Table->{ $cbgpPeer2State . $index } };
+                $self->{'results'}->{$ip}->{'ip_details'}   = $self->getIPDetails($ip);
+                $self->{'results'}->{$ip}->{'as'}           = $bgpPeerTable->{$_};
+                $self->{'results'}->{$ip}->{'state'}        = $bgpPeerTable->{ $bgpPeerState . $index };
+                $self->{'results'}->{$ip}->{'status'}       = $self->{'state_table'}->{ $bgpPeerTable->{ $bgpPeerState . $index } };
                 $self->{'results'}->{$ip}->{'pfx_accepted'} = 0;
             }
         }
     }
 
-    my $cbgpPeer2AddrFamilyPrefixTable = $self->{'snmpSession'}->get_entries(columns => [$cbgpPeer2AcceptedPrefixes]);
+    my $cbgpPeerAddrFamilyPrefixTable = $self->{'snmpSession'}->get_entries(columns => [$cbgpPeerAcceptedPrefixes]);
 
     # Some older IOS does not support this OID.
     #
-    if (!defined($cbgpPeer2AddrFamilyPrefixTable)) {
+    if (!defined($cbgpPeerAddrFamilyPrefixTable)) {
         $self->{'has_err'}  = 0;
         $self->{'errormsg'} = 'Error getting BGP neighbours prefix count: ' . $self->{'snmpSession'}->error;
         return 1;
     } else {
-
-      foreach (keys %$cbgpPeer2AddrFamilyPrefixTable) {
-          if (my $ip = $self->extractCiscoIP($_, $cbgpPeer2AddrFamilyPrefixEntry_re)) {
-              $self->{'results'}->{$ip} = {} unless exists $self->{'results'}->{$ip};
-              $self->{'results'}->{$ip}->{'pfx_accepted'} = $cbgpPeer2AddrFamilyPrefixTable->{$_} || 0;
-          }
-      }
+        foreach (keys %$cbgpPeerAddrFamilyPrefixTable) {
+            if (my $ip = $self->extractCiscoIP($_, $cbgpPeerAddrFamilyPrefixEntry_re)) {
+                $self->{'results'}->{$ip} = {} unless exists $self->{'results'}->{$ip};
+                $self->{'results'}->{$ip}->{'pfx_accepted'} = $cbgpPeerAddrFamilyPrefixTable->{$_} || 0;
+            }
+        }
     }
 
     return 1;
@@ -457,7 +466,7 @@ sub extractCiscoIP {
 
 =head2 getIPDetails
 
-Get details on the IP address, such as version (v4 or v6). 
+Get details on the IP address, such as version (v4 or v6).
 If its private addressing and so forth. Sets these to undef
 if the IP is not valid IP version.
 
@@ -481,10 +490,13 @@ sub getIPDetails {
     } elsif (is_ipv6($ip)) {
         $ipDetails->{'version'} = 6;
 
-        if (is_private_ipv6($ip)) {
-            $ipDetails->{'private'} = 1;
-        } else {
+        # Check for public IPv6 address, excludes private, link local, teredo etc.
+        # See Data::Validate:IP for list of all the special v6 networks not included.
+        #
+        if (is_public_ipv6($ip)) {
             $ipDetails->{'private'} = 0;
+        } else {
+            $ipDetails->{'private'} = 1;
         }
 
     } else {
