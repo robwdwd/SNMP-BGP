@@ -34,7 +34,6 @@ Supported operating systesm are JunOS, IOS, IOS-XE, IOS-XR.
     if ($bgp->hasError()) {
         print $bgp->errorMsg() . "\n";
     } else {
-
         my $neighbours = $bgp->getNeighbours();
 
         if ($bgp->hasError()) {
@@ -65,9 +64,14 @@ Supported operating systesm are JunOS, IOS, IOS-XE, IOS-XR.
 Creates a new SNMP::BGP object. SNMP Authentication either with communities or user based follow
 the same rules as NET::SNMP.
 
+## close
+
+Close the BGP::SNMP session. This closes down the Net::SNMP sessions and clears the neighbours.
+
 ## hasError
 
-Returns if the object has an error.
+Returns 1 (true) if the object has an error. You can retrieve the error message with
+the errorMsg() method.
 
 ## errorMsg
 
@@ -80,16 +84,24 @@ messages can be stored here.)
 
 Get BGP neighbours on the device depending on the software, JunOS, IOS-XR etc.
 
-Returns a hashref indexed on IP address of the BGP neighbour.
+Returns a hashref indexed on IP address of the BGP neighbours found on the device.
 
-    "4.4.4.1" => {
-                      as => 1234,
-                      ip_version => 4,
-                      pfx_accepted => 1000,
-                      state => 6,
-                      status => "established",
-                 },
-    ...
+    "172.20.60.220"  => {
+                           as => 1234,
+                           ip_details => { private => 1, version => 4 },
+                           pfx_accepted => 0,
+                           state => 1,
+                           status => "idle",
+
+                   },
+     "4.4.4.1" => {
+                       as => 1234,
+                       ip_details => { private => 0, version => 4 },
+                       pfx_accepted => 1000,
+                       state => 6,
+                       status => "established",
+                  },
+     ...
 
 ## getIOSXRNei
 
@@ -119,6 +131,12 @@ This method shouldn't usually called directly but used in the getIOSXRNei() and 
     my $ip = $bgp->extractCiscoIP($oid, $oid_re)
 
     print $ip; # 192.168.1.1
+
+## getIPDetails
+
+Get details on the IP address, such as version (v4 or v6). 
+If its private addressing and so forth. Sets these to undef
+if the IP is not valid IP version.
 
 # INTERNAL METHODS
 
