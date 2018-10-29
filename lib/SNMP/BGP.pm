@@ -363,7 +363,7 @@ sub getIOSNei {
                 $self->{'results'}->{$ip}->{'ip_version'} = ip_get_version($ip);
                 $self->{'results'}->{$ip}->{'as'}         = $cbgpPeer2Table->{$_};
                 $self->{'results'}->{$ip}->{'state'}      = $cbgpPeer2Table->{ $cbgpPeer2State . $index };
-                $self->{'results'}->{$ip}->{'status'}     = $state_table{ $cbgpPeer2Table->{ $cbgpPeer2State . $index } };
+                $self->{'results'}->{$ip}->{'status'}     = $self->{'state_table'}->{ $cbgpPeer2Table->{ $cbgpPeer2State . $index } };
             }
         }
     }
