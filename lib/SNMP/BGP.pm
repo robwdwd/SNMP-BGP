@@ -6,17 +6,11 @@ use warnings;
 
 use Carp;
 
-use Net::SNMP;
 use Params::Validate qw( validate SCALAR UNDEF );
-
-use List::MoreUtils qw (firstval natatime);
-
-use Net::IP qw( ip_get_version );
-
-# Using Net::IPv6Addr here for compressing ipv6 address as
-# the sub in Net::IP doesn't work...
-#
+use Data::Validate::IP qw(is_ip is_ipv4 is_ipv6 is_private_ipv4 is_private_ipv6);
 use Net::IPv6Addr;
+use Net::SNMP;
+use List::MoreUtils qw (firstval natatime);
 
 use Data::Dump qw(dump);
 
@@ -138,7 +132,7 @@ sub close {
 
     $self->{'snmpSession'}->close() if ($self->{'snmpSession'});
     $self->{'results'} = undef;
-    
+
     return 1;
 }
 
@@ -176,9 +170,17 @@ Get BGP neighbours on the device depending on the software, JunOS, IOS-XR etc.
 
 Returns a hashref indexed on IP address of the BGP neighbours found on the device.
 
+ "172.20.60.220"  => {
+                        as => 1234,
+                        ip_details => { private => 1, version => 4 },
+                        pfx_accepted => 0,
+                        state => 1,
+                        status => "idle",
+
+                },
   "4.4.4.1" => {
                     as => 1234,
-                    ip_version => 4,
+                    ip_details => { private => 0, version => 4 },
                     pfx_accepted => 1000,
                     state => 6,
                     status => "established",
@@ -234,7 +236,7 @@ sub getIOSXRNei {
         if (my ($base, $index) = $_ =~ /($cbgpPeer2RemoteAs)(.+)$/) {
             if (my $ip = $self->extractCiscoIP($_, $cbgpPeer2Entry_re)) {
                 $self->{'results'}->{$ip} = {} unless exists $self->{'results'}->{$ip};
-                $self->{'results'}->{$ip}->{'ip_version'} = ip_get_version($ip);
+                $self->{'results'}->{$ip}->{'ip_details'} = $self->getIPDetails($ip);
                 $self->{'results'}->{$ip}->{'as'}         = $cbgpPeer2Table->{$_};
                 $self->{'results'}->{$ip}->{'state'}      = $cbgpPeer2Table->{ $cbgpPeer2State . $index };
                 $self->{'results'}->{$ip}->{'status'}     = $self->{'state_table'}->{ $cbgpPeer2Table->{ $cbgpPeer2State . $index } };
@@ -329,9 +331,10 @@ sub getJunOSNei {
             }
 
             next unless $ip;
+            next unless (is_ip($ip));
 
             $self->{'results'}->{$ip}->{'state'}        = $jnxBgpM2PeerTable->{ $jnxBgpM2PeerState . $index };
-            $self->{'results'}->{$ip}->{'ip_version'}   = ip_get_version($ip);
+            $self->{'results'}->{$ip}->{'ip_details'}   = $self->getIPDetails($ip);
             $self->{'results'}->{$ip}->{'status'}       = $self->{'state_table'}->{ $jnxBgpM2PeerTable->{ $jnxBgpM2PeerState . $index } };
             $self->{'results'}->{$ip}->{'as'}           = $jnxBgpM2PeerTable->{ $jnxBgpM2PeerRemoteAs . $index };
             $self->{'results'}->{$ip}->{'pfx_accepted'} = $jnxBgpM2PrefixCountersTable->{$iid} || 0;
@@ -375,7 +378,7 @@ sub getIOSNei {
         if (my ($base, $index) = $_ =~ /($cbgpPeer2RemoteAs)(.+)$/) {
             if (my $ip = $self->extractCiscoIP($_, $cbgpPeer2Entry_re)) {
                 $self->{'results'}->{$ip} = {} unless exists $self->{'results'}->{$ip};
-                $self->{'results'}->{$ip}->{'ip_version'} = ip_get_version($ip);
+                $self->{'results'}->{$ip}->{'ip_details'} = $self->getIPDetails($ip);
                 $self->{'results'}->{$ip}->{'as'}         = $cbgpPeer2Table->{$_};
                 $self->{'results'}->{$ip}->{'state'}      = $cbgpPeer2Table->{ $cbgpPeer2State . $index };
                 $self->{'results'}->{$ip}->{'status'}     = $self->{'state_table'}->{ $cbgpPeer2Table->{ $cbgpPeer2State . $index } };
@@ -446,6 +449,46 @@ sub extractCiscoIP {
         return $ip;
     }
     return 0;
+}
+
+=head2 getIPDetails
+
+Get details on the IP address, such as version (v4 or v6). 
+If its private addressing and so forth. Sets these to undef
+if the IP is not valid IP version.
+
+=cut
+
+sub getIPDetails {
+    my $self = shift;
+    my $ip   = shift;
+
+    my $ipDetails = {};
+
+    if (is_ipv4($ip)) {
+        $ipDetails->{'version'} = 4;
+
+        if (is_private_ipv4($ip)) {
+            $ipDetails->{'private'} = 1;
+        } else {
+            $ipDetails->{'private'} = 0;
+        }
+
+    } elsif (is_ipv6($ip)) {
+        $ipDetails->{'version'} = 6;
+
+        if (is_private_ipv6($ip)) {
+            $ipDetails->{'private'} = 1;
+        } else {
+            $ipDetails->{'private'} = 0;
+        }
+
+    } else {
+        $ipDetails->{'version'} = undef;
+        $ipDetails->{'private'} = undef;
+    }
+
+    return $ipDetails;
 }
 
 =head1 INTERNAL METHODS
