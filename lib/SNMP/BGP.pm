@@ -228,7 +228,7 @@ sub getIOSXRNei {
 
     if (!defined($cbgpPeer2Table)) {
         $self->{'has_err'}  = 1;
-        $self->{'errormsg'} = 'Error getting neighbours from ' . $self->{'options'}->{'snmp'}->{'hostname'} . ': ' . $self->{'snmpSession'}->error;
+        $self->{'errormsg'} = 'Error getting neighbours: ' . $self->{'snmpSession'}->error;
         return 0;
     }
 
@@ -248,7 +248,7 @@ sub getIOSXRNei {
 
     if (!defined($cbgpPeer2AddrFamilyPrefixTable)) {
         $self->{'has_err'}  = 1;
-        $self->{'errormsg'} = 'Error getting neighbours prefixes from ' . $self->{'options'}->{'snmp'}->{'hostname'} . ': ' . $self->{'snmpSession'}->error;
+        $self->{'errormsg'} = 'Error getting BGP neighbours prefix count: ' . $self->{'snmpSession'}->error;
         return 0;
     }
 
@@ -288,7 +288,7 @@ sub getJunOSNei {
 
     if (!defined($jnxBgpM2PrefixCountersEntry_tbl)) {
         $self->{'has_err'}  = 1;
-        $self->{'errormsg'} = 'Error getting neighbours prefix count from ' . $self->{'options'}->{'snmp'}->{'hostname'} . ': ' . $self->{'snmpSession'}->error;
+        $self->{'errormsg'} = 'Error getting BGP neighbours prefix count: ' . $self->{'snmpSession'}->error;
         return 0;
     }
 
@@ -309,7 +309,7 @@ sub getJunOSNei {
 
     if (!defined($jnxBgpM2PeerTable)) {
         $self->{'has_err'}  = 1;
-        $self->{'errormsg'} = 'Error getting neighbours from ' . $self->{'options'}->{'snmp'}->{'hostname'} . ': ' . $self->{'snmpSession'}->error;
+        $self->{'errormsg'} = 'Error getting neighbours: ' . $self->{'snmpSession'}->error;
         return 0;
     }
 
@@ -325,7 +325,7 @@ sub getJunOSNei {
             } elsif ($jnxBgpM2PeerTable->{$_} == 2) {
                 $ip = Net::IPv6Addr::to_string_compressed(join(':', unpack("(A4)*", substr($jnxBgpM2PeerTable->{ $jnxBgpM2PeerRemoteAddr . $index }, 2))));
             } else {
-                printf(STDERR "WARNING: Unknown IP address type found: %s on %s.\n", $jnxBgpM2PeerTable->{$_}, $self->{'options'}->{'hostname'})
+                printf(STDERR "WARNING: Unknown IP address type found: %s on %s.\n", $jnxBgpM2PeerTable->{$_}, $self->{'options'}->{'Hostname'})
                   if $self->{'options'}->{'debug'};
                 next;
             }
@@ -370,7 +370,7 @@ sub getIOSNei {
 
     if (!defined($cbgpPeer2Table)) {
         $self->{'has_err'}  = 1;
-        $self->{'errormsg'} = 'Error getting neighbours from ' . $self->{'options'}->{'snmp'}->{'hostname'} . ': ' . $self->{'snmpSession'}->error;
+        $self->{'errormsg'} = 'Error getting neighbours: ' . $self->{'snmpSession'}->error;
         return 0;
     }
 
@@ -382,23 +382,27 @@ sub getIOSNei {
                 $self->{'results'}->{$ip}->{'as'}         = $cbgpPeer2Table->{$_};
                 $self->{'results'}->{$ip}->{'state'}      = $cbgpPeer2Table->{ $cbgpPeer2State . $index };
                 $self->{'results'}->{$ip}->{'status'}     = $self->{'state_table'}->{ $cbgpPeer2Table->{ $cbgpPeer2State . $index } };
+                $self->{'results'}->{$ip}->{'pfx_accepted'} = 0;
             }
         }
     }
 
     my $cbgpPeer2AddrFamilyPrefixTable = $self->{'snmpSession'}->get_entries(columns => [$cbgpPeer2AcceptedPrefixes]);
 
+    # Some older IOS does not support this OID.
+    #
     if (!defined($cbgpPeer2AddrFamilyPrefixTable)) {
-        $self->{'has_err'}  = 1;
-        $self->{'errormsg'} = 'Error getting neighbours prefixes from ' . $self->{'options'}->{'snmp'}->{'hostname'} . ': ' . $self->{'snmpSession'}->error;
-        return 0;
-    }
+        $self->{'has_err'}  = 0;
+        $self->{'errormsg'} = 'Error getting BGP neighbours prefix count: ' . $self->{'snmpSession'}->error;
+        return 1;
+    } else {
 
-    foreach (keys %$cbgpPeer2AddrFamilyPrefixTable) {
-        if (my $ip = $self->extractCiscoIP($_, $cbgpPeer2AddrFamilyPrefixEntry_re)) {
-            $self->{'results'}->{$ip} = {} unless exists $self->{'results'}->{$ip};
-            $self->{'results'}->{$ip}->{'pfx_accepted'} = $cbgpPeer2AddrFamilyPrefixTable->{$_} || 0;
-        }
+      foreach (keys %$cbgpPeer2AddrFamilyPrefixTable) {
+          if (my $ip = $self->extractCiscoIP($_, $cbgpPeer2AddrFamilyPrefixEntry_re)) {
+              $self->{'results'}->{$ip} = {} unless exists $self->{'results'}->{$ip};
+              $self->{'results'}->{$ip}->{'pfx_accepted'} = $cbgpPeer2AddrFamilyPrefixTable->{$_} || 0;
+          }
+      }
     }
 
     return 1;
