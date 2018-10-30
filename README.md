@@ -43,6 +43,19 @@ Supported operating systesm are JunOS, IOS, IOS-XE, IOS-XR.
         }
     }
 
+# Supported devices
+
+The module supports IOS, IOS-XE, IOS-XR and JunOS. Most later versions of IOS-XE, IOS-XR and JunOS
+support all the MIBS needed however some old IOS version don't support getting prefix count for
+each neighbour or there is no support for v6 neighbours in IOS.
+
+IOS-XR and IOS-XE is using full CISCO-BGP4-MIB with cbgpPeer2AddrFamilyPrefixTable (Not the 2 there).
+
+IOS is using BGP4-MIB and cbgpPeerAddrFamilyPrefixEntry from CISCO-BGP4-MIB. If cbgpPeerAddrFamilyPrefixEntry
+is not supported on a device it sets prefix\_count to be zero for all neighbours.
+
+JunOS is using BGP4-V2-MIB-JUNIPER.
+
 # SUBROUTINES/METHODS
 
 ## new
@@ -86,22 +99,22 @@ Get BGP neighbours on the device depending on the software, JunOS, IOS-XR etc.
 
 Returns a hashref indexed on IP address of the BGP neighbours found on the device.
 
-    "172.20.60.220"  => {
-                           as => 1234,
-                           ip_details => { private => 1, version => 4 },
-                           pfx_accepted => 0,
-                           state => 1,
-                           status => "idle",
+      "172.20.60.220"  => {
+          as => 1234,
+          ip_details => { private => 1, version => 4 },
+          pfx_accepted => 0,
+          state => 1,
+          status => "idle",
 
-                   },
-     "4.4.4.1" => {
-                       as => 1234,
-                       ip_details => { private => 0, version => 4 },
-                       pfx_accepted => 1000,
-                       state => 6,
-                       status => "established",
                   },
-     ...
+      "4.4.4.1" => {
+          as => 1234,
+          ip_details => { private => 0, version => 4 },
+          pfx_accepted => 1000,
+          state => 6,
+          status => "established",
+                 },
+    ...
 
 ## getIOSXRNei
 
@@ -132,9 +145,22 @@ This method shouldn't usually called directly but used in the getIOSXRNei() and 
 
     print $ip; # 192.168.1.1
 
+## extractJunOSIP
+
+Extracts the IP address from the OID using a regular expression.
+
+This method shouldn't usually called directly but used in the getIOSXRNei() and getIOSNei() methods internally.
+
+    my $oid_re = '1\.3\.6\.1\.4\.1\.9\.9\.187\.1\.2\.5\.1\.\d+\.[12]\.\d{1,2}\.(.+)$';
+    my $oid    = '1.3.6.1.4.1.9.9.187.1.2.5.1.29.1.4.192.168.1.1'
+
+    my $ip = $bgp->extractCiscoIP($oid, $oid_re)
+
+    print $ip; # 192.168.1.1
+
 ## getIPDetails
 
-Get details on the IP address, such as version (v4 or v6). 
+Get details on the IP address, such as version (v4 or v6).
 If its private addressing and so forth. Sets these to undef
 if the IP is not valid IP version.
 
