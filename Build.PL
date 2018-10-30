@@ -19,8 +19,8 @@ my $builder = Module::Build->new(
         'Net::SNMP'        => '0',
         'Params::Validate' => '1.29',
         'Data::Validate::IP' => '0.27',
-        'Net::IPv6Addr'    => '0.9',
-        'List::MoreUtils'  => '0.423',
+        'NetAddr::IP::Util'    => '1.53',
+        'List::MoreUtils'  => '0.416',
     },
     add_to_cleanup => ['SNMP-BGP-*'],
 );

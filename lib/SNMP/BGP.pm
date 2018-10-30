@@ -8,7 +8,7 @@ use Carp;
 
 use Params::Validate qw( validate SCALAR UNDEF );
 use Data::Validate::IP qw(is_ip is_ipv4 is_ipv6 is_private_ipv4 is_public_ipv6);
-use Net::IPv6Addr;
+use NetAddr::IP::Util qw( packzeros );
 use Net::SNMP;
 use List::MoreUtils qw (firstval natatime);
 
@@ -451,7 +451,7 @@ sub extractCiscoIP {
                 push(@ipv6, join('', @v));
             }
 
-            return Net::IPv6Addr::to_string_compressed(join ':', @ipv6);
+            return packzeros(join ':', @ipv6);
         }
         return $ip;
     }
@@ -494,7 +494,7 @@ sub extractJunOSIP {
             push(@ipv6, join('', @v));
         }
 
-        return Net::IPv6Addr::to_string_compressed(join ':', @ipv6);
+        return packzeros(join ':', @ipv6);
     }
 
     return 0;
