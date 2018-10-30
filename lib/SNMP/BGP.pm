@@ -24,7 +24,7 @@ Version 0.01
 
 =cut
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 =head1 SYNOPSIS
 
@@ -208,7 +208,7 @@ sub getNeighbours {
     if ($self->{'options'}->{'os'} eq 'IOS-XR' || $self->{'options'}->{'os'} eq 'IOS-XE') {
         $self->getIOSXRNei();
     } elsif ($self->{'options'}->{'os'} eq 'JunOS') {
-        $self->getJunOSNeiNew();
+        $self->getJunOSNei();
     } elsif ($self->{'options'}->{'os'} eq 'IOS') {
         $self->getIOSNei();
     }
@@ -281,14 +281,18 @@ rather than this one directly.
 
 =cut
 
-sub getJunOSNeiNew {
+sub getJunOSNei {
 
     my $self = shift;
 
-    my $jnxBgpM2PeerState          = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.2';
-    my $jnxBgpM2PeerRemoteAs       = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.13';
-    my $jnxBgpM2PeerIndex          = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.14';
+    my $jnxBgpM2PeerState    = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.2';
+    my $jnxBgpM2PeerRemoteAs = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.13';
+    my $jnxBgpM2PeerIndex    = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.14';
 
+    # JunOS puts the local and remote address in the index. It also puts the address type and routing instance.
+    # 1 = ipv4, 2 = ipv6. Also the 0 here is the routing instance [\d]+\.0 in this case 0 is the global instance
+    # ToDO: add functionailty to get all routing instances or a particular one.
+    #
     my $jnxBgpM2PeerEntry_v4re = '1\.3\.6\.1\.4\.1\.2636\.5\.1\.1\.2\.1\.1\.1\.[\d]+\.0\.1\.(?:\d+\.){4}1\.(.+)$';
     my $jnxBgpM2PeerEntry_v6re = '1\.3\.6\.1\.4\.1\.2636\.5\.1\.1\.2\.1\.1\.1\.[\d]+\.0\.2\.(?:\d+\.){16}2\.(.+)$';
 
@@ -340,81 +344,6 @@ sub getJunOSNeiNew {
                 $self->{'results'}->{$ip}->{'status'}       = $self->{'state_table'}->{ $jnxBgpM2PeerTable->{ $jnxBgpM2PeerState . $index } };
                 $self->{'results'}->{$ip}->{'pfx_accepted'} = $jnxBgpM2PrefixCountersTable->{$iid} || 0;
             }
-        }
-    }
-
-    return 1;
-}
-
-sub getJunOSNei {
-
-    my $self = shift;
-
-    my $jnxBgpM2PeerState          = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.2';
-    my $jnxBgpM2PeerRemoteAddrType = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.10';
-    my $jnxBgpM2PeerRemoteAddr     = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.11';
-    my $jnxBgpM2PeerRemoteAs       = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.13';
-    my $jnxBgpM2PeerIndex          = '1.3.6.1.4.1.2636.5.1.1.2.1.1.1.14';
-
-    my $jnxBgpM2PrefixInPrefixesAccepted = '1.3.6.1.4.1.2636.5.1.1.2.6.2.1.8';
-
-    # Get the prefix table.
-    #
-    my $jnxBgpM2PrefixCountersEntry_tbl =
-      $self->{'snmpSession'}->get_entries(maxrepetitions => 3, columns => [$jnxBgpM2PrefixInPrefixesAccepted]);
-
-    if (!defined($jnxBgpM2PrefixCountersEntry_tbl)) {
-        $self->{'has_err'}  = 1;
-        $self->{'errormsg'} = 'Error getting BGP neighbours prefix count: ' . $self->{'snmpSession'}->error;
-        return 0;
-    }
-
-    my $jnxBgpM2PrefixCountersTable = {};
-
-    foreach (keys %$jnxBgpM2PrefixCountersEntry_tbl) {
-        if (my ($iid) = $_ =~ /$jnxBgpM2PrefixInPrefixesAccepted\.(\d+)\.\d+\.\d+$/) {
-            $jnxBgpM2PrefixCountersTable->{$iid} = $jnxBgpM2PrefixCountersEntry_tbl->{$_};
-        }
-    }
-
-    # Get Peer table.
-    #
-    my $jnxBgpM2PeerTable = $self->{'snmpSession'}->get_entries(
-        maxrepetitions => 3,
-        columns        => [ $jnxBgpM2PeerIndex, $jnxBgpM2PeerRemoteAddr, $jnxBgpM2PeerRemoteAs, $jnxBgpM2PeerRemoteAddrType, $jnxBgpM2PeerState ]
-    );
-
-    if (!defined($jnxBgpM2PeerTable)) {
-        $self->{'has_err'}  = 1;
-        $self->{'errormsg'} = 'Error getting neighbours: ' . $self->{'snmpSession'}->error;
-        return 0;
-    }
-
-    foreach (keys %$jnxBgpM2PeerTable) {
-
-        if (my ($base, $index) = $_ =~ /($jnxBgpM2PeerRemoteAddrType)(.+)$/) {
-
-            my $iid = $jnxBgpM2PeerTable->{ $jnxBgpM2PeerIndex . $index };
-            my $ip;
-
-            if ($jnxBgpM2PeerTable->{$_} == 1) {
-                $ip = join('.', unpack("C*", pack("H*", substr($jnxBgpM2PeerTable->{ $jnxBgpM2PeerRemoteAddr . $index }, 2))));
-            } elsif ($jnxBgpM2PeerTable->{$_} == 2) {
-                $ip = Net::IPv6Addr::to_string_compressed(join(':', unpack("(A4)*", substr($jnxBgpM2PeerTable->{ $jnxBgpM2PeerRemoteAddr . $index }, 2))));
-            } else {
-                printf(STDERR "WARNING: Unknown IP address type found: %s on %s.\n", $jnxBgpM2PeerTable->{$_}, $self->{'options'}->{'Hostname'})
-                  if $self->{'options'}->{'debug'};
-                next;
-            }
-
-            next unless $ip;
-            next unless (is_ip($ip));
-
-            $self->{'results'}->{$ip}->{'state'}        = $jnxBgpM2PeerTable->{ $jnxBgpM2PeerState . $index };
-            $self->{'results'}->{$ip}->{'ip_details'}   = $self->getIPDetails($ip);
-            $self->{'results'}->{$ip}->{'status'}       = $self->{'state_table'}->{ $jnxBgpM2PeerTable->{ $jnxBgpM2PeerState . $index } };
-            $self->{'results'}->{$ip}->{'as'}           = $jnxBgpM2PeerTable->{ $jnxBgpM2PeerRemoteAs . $index };
-            $self->{'results'}->{$ip}->{'pfx_accepted'} = $jnxBgpM2PrefixCountersTable->{$iid} || 0;
         }
     }
 

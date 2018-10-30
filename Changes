@@ -1,5 +1,9 @@
 Revision history for SNMP-BGP
 
-0.01    Date/time
-        First version, released on an unsuspecting world.
+0.02    30/10/2018
+        Full support for JunOS, IOS-XR, IOS-XE and IOS.
+        Added minimum versions in Build.PL for required modules
+        
 
+0.01    20/10/2018
+        First version, released on an unsuspecting world.
