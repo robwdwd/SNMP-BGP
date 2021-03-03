@@ -236,7 +236,7 @@ sub getIOSXRNei {
 
     # Get peer state
     #
-    my $cbgpPeer2Table = $self->{'snmpSession'}->get_entries(columns => [ $cbgpPeer2State, $cbgpPeer2RemoteAs ]);
+    my $cbgpPeer2Table = $self->{'snmpSession'}->get_entries(maxrepetitions => 3, columns => [ $cbgpPeer2State, $cbgpPeer2RemoteAs ]);
 
     if (!defined($cbgpPeer2Table)) {
         $self->{'has_err'}  = 1;
@@ -256,7 +256,7 @@ sub getIOSXRNei {
         }
     }
 
-    my $cbgpPeer2AddrFamilyPrefixTable = $self->{'snmpSession'}->get_entries(columns => [$cbgpPeer2AcceptedPrefixes]);
+    my $cbgpPeer2AddrFamilyPrefixTable = $self->{'snmpSession'}->get_entries(maxrepetitions => 3, columns => [$cbgpPeer2AcceptedPrefixes]);
 
     if (!defined($cbgpPeer2AddrFamilyPrefixTable)) {
         $self->{'has_err'}  = 1;
@@ -370,7 +370,7 @@ sub getIOSNei {
 
     # Get peer state
     #
-    my $bgpPeerTable = $self->{'snmpSession'}->get_entries(columns => [ $bgpPeerState, $bgpPeerRemoteAs ]);
+    my $bgpPeerTable = $self->{'snmpSession'}->get_entries(maxrepetitions => 3, columns => [ $bgpPeerState, $bgpPeerRemoteAs ]);
 
     if (!defined($bgpPeerTable)) {
         $self->{'has_err'}  = 1;
@@ -391,7 +391,7 @@ sub getIOSNei {
         }
     }
 
-    my $cbgpPeerAddrFamilyPrefixTable = $self->{'snmpSession'}->get_entries(columns => [$cbgpPeerAcceptedPrefixes]);
+    my $cbgpPeerAddrFamilyPrefixTable = $self->{'snmpSession'}->get_entries(maxrepetitions => 3, columns => [$cbgpPeerAcceptedPrefixes]);
 
     # Some older IOS does not support this OID.
     #
